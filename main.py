@@ -42,7 +42,7 @@ async def load_cogs():
 
 # ---------------- /shutdown command ----------------
 
-GUILD_ID = 1417123832862474262
+GUILD_ID = 1415013619246039082
 
 @client.tree.command(
         name="shutdown", 
@@ -56,16 +56,6 @@ async def shutdown(interaction: discord.Interaction):
         return
     await interaction.response.send_message("🛑 Shut down the bot...", ephemeral=False)
     await client.close()
-
-# ---------------- Bot event ----------------
-
-BOLD = '\033[1m'
-
-@client.event
-async def on_ready():
-    print(BOLD + f"Logged in as {client.user}")
-    synced = await client.tree.sync(guild=discord.Object(id=GUILD_ID))
-    print(f"Slash commands synced: {len(synced)} Commands")
 
 #------------------------ VIP+ ------------------------
 
@@ -135,6 +125,17 @@ async def closerequest(interaction: discord.Interaction):
 
     await interaction.response.send_message(interaction.user.mention, embed=embed, view=CloseTicketView())
 
+# ---------------- Bot event ----------------
+
+BOLD = '\033[1m'
+
+@client.event
+async def on_ready():
+    print(BOLD + f"Logged in as {client.user}")
+    synced = await client.tree.sync(guild=discord.Object(id=GUILD_ID))
+    print(f"Slash commands synced: {len(synced)} Commands")
+    client.add_view(CloseTicketView())
+
 # ----------------------- /role give command  ----------------------- 
 
 @client.tree.command(
@@ -177,8 +178,7 @@ async def purge(interaction: discord.Interaction, amount: int):
     await interaction.response.defer()
     deleted = await interaction.channel.purge(limit=amount+1)
     real_deleted = max(len(deleted) - 1, 0)
-    embed = discord.Embed(description=f"Purged {real_deleted} messages", color=discord.Colour.red())
-    await interaction.channel.send(embed=embed, delete_after=4)
+    await interaction.channel.send(f"Purged {real_deleted} messages", delete_after=4)
 
 # ---------------- Run bot + web ----------------
 

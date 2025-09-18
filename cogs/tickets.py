@@ -8,7 +8,7 @@ class CloseButton(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Close", emoji="🔒", style=discord.ButtonStyle.gray)
+    @discord.ui.button(label="Close", emoji="🔒", style=discord.ButtonStyle.gray, custom_id="close_button")
     async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
         embed = discord.Embed(
             title="Sure?",
@@ -21,11 +21,11 @@ class CloseButton(discord.ui.View):
 
 class Buttons(discord.ui.View):
     def __init__(self):
-        super().__init__(timeout=60)
+        super().__init__(timeout=None)
 
 # Confirm Button -------------------------------
 
-    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.red)
+    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.red, custom_id="confirm_close")
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
 
@@ -47,7 +47,7 @@ class Buttons(discord.ui.View):
 
 # Cancel Button --------------------------------
 
-    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.gray)
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.gray, custom_id="cancel_close")
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         await interaction.delete_original_response()
@@ -62,7 +62,7 @@ class TicketCategory(discord.ui.Select):
             discord.SelectOption(label="Role Request", description="Open this ticket to apply for an artist rankup.", emoji="⭐"),
             discord.SelectOption(label="Support", description="Open this ticket if you have any general queries.", emoji="📩")
         ]
-        super().__init__(placeholder="Select a topic", min_values=1, max_values=1, options=options)
+        super().__init__(placeholder="Select a topic", min_values=1, max_values=1, options=options, custom_id="ticket_category_dropdown")
 
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True) 
@@ -169,6 +169,9 @@ class TicketDropdownView(discord.ui.View):
 class Tickets(commands.Cog):
     def __init__(self, client):
         self.client = client
+        client.add_view(CloseButton())
+        client.add_view(Buttons())
+        client.add_view(TicketDropdownView())
 
     @commands.has_permissions(administrator=True)
     @commands.command(aliases=["ticket"])
