@@ -6,6 +6,7 @@ import os
 import asyncio
 from flask import Flask
 from threading import Thread
+from cogs.tickets import CloseTicketView
 
 
 # ---------------- Load .env ----------------
@@ -65,65 +66,6 @@ async def on_member_update(before, after):
         role = discord.utils.get(after.guild.roles, name="VIP+")
         if role:
             await after.add_roles(role)
-    
-# ---------------- Persistent TicketView ----------------
-
-class CloseTicketView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)  # persistent
-
-    @discord.ui.button(label="✅ Accept & Close", style=discord.ButtonStyle.green, custom_id="accept_close")
-    async def accept_close(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = discord.Embed(
-            title=(f"{interaction.user.name} has accepted ticket closure."),
-            description="This ticket has been closed and will be deleted shortly.",
-            color=discord.Colour.dark_blue()
-        )
-
-        if not is_ticket_channel(interaction.channel):
-            await interaction.response.send_message("This button can only be used in ticket channels.", ephemeral=True)
-            return
-        await interaction.response.send_message(embed=embed, ephemeral=False)
-        await asyncio.sleep(2)
-        await interaction.channel.delete()
-
-
-    @discord.ui.button(label="❌ Deny & Keep Open", style=discord.ButtonStyle.gray, custom_id="deny_keep")
-    async def deny_keep(self, interaction: discord.Interaction, button: discord.ui.Button):
-     if not is_ticket_channel(interaction.channel):
-        await interaction.response.send_message(
-            "This button can only be used in ticket channels.", ephemeral=True)
-        return
-     await interaction.response.send_message(
-        content=f"{interaction.user.mention} has denied the ticket closure.", ephemeral=False)
-     await interaction.message.delete()
-        
-# ---------------- Helper Function ----------------
-
-def is_ticket_channel(channel: discord.abc.GuildChannel):
-    ticket_prefixes = ["partnership-", "support-", "role-request-"]
-    return any(channel.name.startswith(prefix) for prefix in ticket_prefixes)
-
-# ---------------- /closerequest command ----------------
-
-@client.tree.command(
-    name="closerequest",
-    description="Sends a message asking the user to confirm the ticket is able to be closed.",
-    guild=discord.Object(id=GUILD_ID)
-)
-@discord.app_commands.checks.has_permissions(administrator=True)
-async def closerequest(interaction: discord.Interaction):
-    if not is_ticket_channel(interaction.channel):
-        await interaction.response.send_message("You can only use this command in ticket channels.", ephemeral=True)
-        return
-
-    embed = discord.Embed(
-        title="Close Request",
-        description=f"{interaction.user.mention} has requested to close this ticket.\n\nPlease accept or deny using the buttons below.",
-        color=discord.Color.green()
-    )
-
-    await interaction.response.send_message(interaction.user.mention, embed=embed, view=CloseTicketView())
 
 # ---------------- Bot event ----------------
 

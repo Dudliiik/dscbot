@@ -1,12 +1,14 @@
-import asyncio
 import discord
+from discord import app_commands
 from discord.ext import commands
+import asyncio
 
 # Close Button ---------------------------------
 
 class CloseButton(discord.ui.View):
-    def __init__(self):
+    def __init__(self, bot):
         super().__init__(timeout=None)
+        self.bot = bot
 
     @discord.ui.button(label="Close", emoji="🔒", style=discord.ButtonStyle.gray, custom_id="close_button")
     async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -15,15 +17,14 @@ class CloseButton(discord.ui.View):
             description="Are you sure about closing this ticket?",
             color=discord.Colour.dark_blue()
         )
-        await interaction.response.send_message(embed=embed, view=Buttons(), ephemeral=True)
+        await interaction.response.send_message(embed=embed, view=Buttons(self.bot), ephemeral=True)
 
 # Buttons --------------------------------------
 
 class Buttons(discord.ui.View):
-    def __init__(self):
+    def __init__(self, bot):
         super().__init__(timeout=None)
-
-# Confirm Button -------------------------------
+        self.bot = bot
 
     @discord.ui.button(label="Confirm", style=discord.ButtonStyle.red, custom_id="confirm_close")
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -36,6 +37,11 @@ class Buttons(discord.ui.View):
         )
         await interaction.followup.send(embed=embed, ephemeral=False)
 
+        # Odstránime autora ticketu zo slovníka
+        cog = self.bot.get_cog("Tickets")
+        if cog and interaction.channel.id in cog.ticket_owners:
+            del cog.ticket_owners[interaction.channel.id]
+
         async def delete_channel_later(channel):
             await asyncio.sleep(2)
             try:
@@ -44,8 +50,6 @@ class Buttons(discord.ui.View):
                 print(f"Failed to delete channel: {e}")
 
         asyncio.create_task(delete_channel_later(interaction.channel))
-
-# Cancel Button --------------------------------
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.gray, custom_id="cancel_close")
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -56,7 +60,8 @@ class Buttons(discord.ui.View):
 # Ticket Categories ----------------------------
 
 class TicketCategory(discord.ui.Select):
-    def __init__(self):
+    def __init__(self, bot):
+        self.bot = bot
         options = [
             discord.SelectOption(label="Partnership", description="Open this only if your server follows our guidelines.", emoji="🎫"),
             discord.SelectOption(label="Role Request", description="Open this ticket to apply for an artist rankup.", emoji="⭐"),
@@ -65,8 +70,8 @@ class TicketCategory(discord.ui.Select):
         super().__init__(placeholder="Select a topic", min_values=1, max_values=1, options=options, custom_id="ticket_category_dropdown")
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True) 
-        await interaction.message.edit(view=TicketDropdownView())
+        await interaction.response.defer(ephemeral=True)
+        await interaction.message.edit(view=TicketDropdownView(self.bot))
 
         category = self.values[0]
         user = interaction.user
@@ -75,8 +80,8 @@ class TicketCategory(discord.ui.Select):
             "Partnership": {
                 "title": "Partnership Ticket",
                 "description": "Thanks {user.name} for contacting the partnership team of **Thumbnailers**!\n"
-                                "Send your server's ad, and the ping you're expecting with any other additional details.\n"
-                                "Our team will respond to you shortly.",
+                               "Send your server's ad, and the ping you're expecting with any other additional details.\n"
+                               "Our team will respond to you shortly.",
                 "ping": [1136118197725171813, 1102975816062730291],
                 "ping_user": True,
                 "discord_category": "Partnership Tickets",
@@ -85,8 +90,8 @@ class TicketCategory(discord.ui.Select):
             "Role Request": {
                 "title": "Role Request Ticket",
                 "description": "Thank you for contacting support.\n"
-                                "Please refer to <#1102968475925876876> and make sure you send the amount of thumbnails required for the rank you're applying for, as and when you open the ticket. "
-                                "Make sure you link 5 minecraft based thumbnails at MINIMUM if you apply for one of the artist roles.",
+                               "Please refer to <#1102968475925876876> and make sure you send the amount of thumbnails required for the rank you're applying for, as and when you open the ticket. "
+                               "Make sure you link 5 minecraft based thumbnails at MINIMUM if you apply for one of the artist roles.",
                 "ping": [1156543738861064192],
                 "ping_user": False,
                 "discord_category": "Role Request Tickets",
@@ -95,7 +100,7 @@ class TicketCategory(discord.ui.Select):
             "Support": {
                 "title": "Support Ticket",
                 "description": "Thanks {user.name} for contacting the support team of **Thumbnailers**!\n"
-                                "Please explain your case so we can help you as quickly as possible!",
+                               "Please explain your case so we can help you as quickly as possible!",
                 "ping": [1102976554759368818, 1102975816062730291],
                 "ping_user": True,
                 "discord_category": "Support Tickets",
@@ -105,12 +110,9 @@ class TicketCategory(discord.ui.Select):
 
         channel_name = f"{category.lower().replace(' ', '-')}-{user.name}"
 
-        if category != "Support":
-            if discord.utils.get(interaction.guild.channels, name=channel_name):
-                await interaction.followup.send(
-                    f"You already have a ticket in {category} category.", ephemeral=True
-                )
-                return
+        if category != "Support" and discord.utils.get(interaction.guild.channels, name=channel_name):
+            await interaction.followup.send(f"You already have a ticket in {category} category.", ephemeral=True)
+            return
 
         overwrites = {
             interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
@@ -120,10 +122,6 @@ class TicketCategory(discord.ui.Select):
 
         discord_category_name = categories[category]["discord_category"]
         category_obj = discord.utils.get(interaction.guild.categories, name=discord_category_name)
-        ticket_category_name = categories[category]["ticket_opened_category"]
-        category_ticket = discord.utils.get(interaction.guild.categories, name=ticket_category_name)
-
-        
 
         if category_obj is None:
             channel = await interaction.guild.create_text_channel(
@@ -140,39 +138,79 @@ class TicketCategory(discord.ui.Select):
             )
 
         config = categories[category]
-
         embed = discord.Embed(
             title=config["title"],
             description=config["description"].format(user=user),
             color=discord.Color.blue()
         )
 
-        view = CloseButton()
+        view = CloseButton(self.bot)
         ping_roles = " ".join(f"<@&{rid}>" for rid in config["ping"])
 
-        if config.get("ping_user", True):  
-            content = f"{user.mention} {ping_roles}"
-        else:
-            content = ping_roles
+        content = f"{user.mention} {ping_roles}" if config.get("ping_user", True) else ping_roles
 
         await channel.send(content=content, embed=embed, view=view)
-        await interaction.followup.send(f"Your {ticket_category_name} has been opened {channel.mention} ✅", ephemeral=True)
+        await interaction.followup.send(f"Your {categories[category]['ticket_opened_category']} has been opened {channel.mention} ✅", ephemeral=True)
+
+
+# ---------------- Persistent TicketView ----------------
+
+class CloseTicketView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)  # persistent
+
+    @discord.ui.button(label="✅ Accept & Close", style=discord.ButtonStyle.green, custom_id="accept_close")
+    async def accept_close(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = discord.Embed(
+            title=(f"{interaction.user.name} has accepted ticket closure."),
+            description="This ticket has been closed and will be deleted shortly.",
+            color=discord.Colour.dark_blue()
+        )
+
+        if not is_ticket_channel(interaction.channel):
+            await interaction.response.send_message("This button can only be used in ticket channels.", ephemeral=True)
+            return
+        await interaction.response.send_message(embed=embed, ephemeral=False)
+        await asyncio.sleep(4)
+        await interaction.channel.delete()
+
+
+    @discord.ui.button(label="❌ Deny & Keep Open", style=discord.ButtonStyle.gray, custom_id="deny_keep")
+    async def deny_keep(self, interaction: discord.Interaction, button: discord.ui.Button):
+     if not is_ticket_channel(interaction.channel):
+        await interaction.response.send_message(
+            "This button can only be used in ticket channels.", ephemeral=True)
+        return
+     await interaction.response.send_message(
+        content=f"{interaction.user.mention} has denied the ticket closure.", ephemeral=False)
+     await interaction.message.delete()
+        
+# ---------------- Helper Function ----------------
+
+def is_ticket_channel(channel: discord.abc.GuildChannel):
+    ticket_prefixes = ["partnership-", "support-", "role-request-"]
+    return any(channel.name.startswith(prefix) for prefix in ticket_prefixes)
+
 
 
 class TicketDropdownView(discord.ui.View):
-    def __init__(self):
+    def __init__(self, bot):
         super().__init__(timeout=None)
-        self.add_item(TicketCategory())
+        self.add_item(TicketCategory(bot))
 
 # ------------ Ticket setup command ------------
+
+GUILD_ID = 1415013619246039082
 
 class Tickets(commands.Cog):
     def __init__(self, client):
         self.client = client
-        client.add_view(CloseButton())
-        client.add_view(Buttons())
-        client.add_view(TicketDropdownView())
-
+        self.ticket_owners = {}  
+        client.add_view(CloseButton(client))
+        client.add_view(Buttons(client))
+        client.add_view(TicketDropdownView(client))
+        self.client.tree.add_command(self.closerequest, guild=discord.Object(id=GUILD_ID))
+    
     @commands.has_permissions(administrator=True)
     @commands.command(aliases=["ticket"])
     async def ticket_command(self, ctx):
@@ -188,7 +226,26 @@ class Tickets(commands.Cog):
             ),
             color=discord.Color.blue()
         )
-        await ctx.send(embed=embed, view=TicketDropdownView())
+        await ctx.send(embed=embed, view=TicketDropdownView(self.client))
+
+    # ----------------- /closerequest -----------------
+    @app_commands.command(
+        name="closerequest",
+        description="Sends a message asking the user to confirm the ticket is able to be closed."
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def closerequest(self, interaction: discord.Interaction):
+        if not is_ticket_channel(interaction.channel):
+            await interaction.response.send_message("You can only use this command in ticket channels.", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title="Close Request",
+            description=f"{interaction.user.mention} has requested to close this ticket.\n\nPlease accept or deny using the buttons below.",
+            color=discord.Color.green()
+        )
+
+        await interaction.response.send_message(embed=embed, view=CloseTicketView())
 
 async def setup(client):
     await client.add_cog(Tickets(client))
