@@ -2,6 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import asyncio
+import io
 
 # Close Button ---------------------------------
 
@@ -20,6 +21,8 @@ class CloseButton(discord.ui.View):
         await interaction.response.send_message(embed=embed, view=Buttons(self.bot), ephemeral=True)
 
 # Buttons --------------------------------------
+
+TRANSCRIPT_CHANNEL_ID = 1419364607918739616
 
 class Buttons(discord.ui.View):
     def __init__(self, bot):
@@ -42,9 +45,43 @@ class Buttons(discord.ui.View):
         if cog and interaction.channel.id in cog.ticket_owners:
             del cog.ticket_owners[interaction.channel.id]
 
+        # Funkcia na uloženie transkriptu
+        async def save_ticket_transcript(channel: discord.TextChannel):
+            transcript_channel = self.bot.get_channel(TRANSCRIPT_CHANNEL_ID)
+            if transcript_channel is None:
+                print(f"Transcript channel with ID {TRANSCRIPT_CHANNEL_ID} not found.")
+                return
+
+            output = io.StringIO()
+            async for msg in channel.history(limit=None, oldest_first=True):
+                # Text správy
+                output.write(f"{msg.created_at} - {msg.author.display_name}: {msg.content}\n")
+                
+                # Embeds
+                for embed in msg.embeds:
+                    output.write("  **Embed**\n")
+                    if embed.title:
+                        output.write(f"    Title: {embed.title}\n")
+                    if embed.description:
+                        output.write(f"    Description: {embed.description}\n")
+                    for field in embed.fields:
+                        output.write(f"    Field {field.name}: {field.value}\n")
+                
+                # Attachments
+                for attachment in msg.attachments:
+                    output.write(f"    Attachment: {attachment.url}\n")
+                
+                output.write("\n")  # oddelenie správ
+
+            output.seek(0)
+            file = discord.File(fp=output, filename=f"{channel.name}.txt")
+            await transcript_channel.send(f"Ticket closed:", file=file)
+
         async def delete_channel_later(channel):
             await asyncio.sleep(2)
             try:
+                # najprv uložíme transcript
+                await save_ticket_transcript(channel)
                 await channel.delete()
             except Exception as e:
                 print(f"Failed to delete channel: {e}")
@@ -241,7 +278,7 @@ class Tickets(commands.Cog):
 
         embed = discord.Embed(
             title="Close Request",
-            description=f"{interaction.user.mention} has requested to close this ticket.\n\nPlease accept or deny using the buttons below.",
+            description=f"{interaction.user.mention} has marked your ticket as resolved. Would you like to close the ticket or cancel the closure request?",
             color=discord.Color.green()
         )
 
