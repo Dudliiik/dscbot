@@ -25,6 +25,9 @@ class Help(commands.Cog):
 
     @commands.command()
     async def help(self, ctx):
+        if ctx.channel.id != 1123308113756434606:
+            return
+        
         help_role = get(ctx.guild.roles, name="Help")
         if help_role is None:
             await ctx.send("Role 'Help' doesn't exist!")

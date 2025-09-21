@@ -25,6 +25,9 @@ class Feedback(commands.Cog):
 
     @commands.command()
     async def feedback(self, ctx):
+        if ctx.channel.id != 1103042304970850374:
+            return
+        
         feedback_role = get(ctx.guild.roles, name="Feedback")
         if feedback_role is None:
             await ctx.send("Role 'Feedback' doesn't exist!")

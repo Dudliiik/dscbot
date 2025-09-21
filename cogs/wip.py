@@ -25,6 +25,9 @@ class WIP(commands.Cog):
 
     @commands.command()
     async def wip(self, ctx):
+        if ctx.channel.id != 1282266945315672094:
+            return
+        
         wip_role = get(ctx.guild.roles, name="WIP")
         if wip_role is None:
             await ctx.send("Role 'WIP' doesn't exist!")
