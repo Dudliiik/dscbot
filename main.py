@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from discord.utils import get
 import os
 import asyncio
-from flask import Flask
+from flask import Flask, send_from_directory
 from threading import Thread
 from cogs.tickets import CloseTicketView
 
@@ -17,6 +17,12 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 # ---------------- Flask ----------------
 
 app = Flask(__name__)
+TRANSCRIPT_FOLDER = os.path.join(os.getcwd(), "thumbnailers/transcripts")
+
+@app.route("/transcripts/<ticket_name>")
+def transcripts(ticket_name):
+    file_name = f"{ticket_name}.html"
+    return send_from_directory(TRANSCRIPT_FOLDER, file_name)
 
 @app.route("/")
 def home():
@@ -43,12 +49,9 @@ async def load_cogs():
 
 # ---------------- /shutdown command ----------------
 
-GUILD_ID = 1415013619246039082
-
 @client.tree.command(
         name="shutdown", 
         description="Shuts down the bot.",
-        guild=discord.Object(id=GUILD_ID)
         )
 async def shutdown(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.administrator:
@@ -69,13 +72,21 @@ async def on_member_update(before, after):
 
 # ---------------- Bot event ----------------
 
-BOLD = '\033[1m'
+GUILD_ID = 1415013619246039082
 
 @client.event
 async def on_ready():
-    print(BOLD + f"Logged in as {client.user}")
-    synced = await client.tree.sync(guild=discord.Object(id=GUILD_ID))
-    print(f"Slash commands synced: {len(synced)} Commands")
+    print(f"✅ Logged in as {client.user}")
+
+    # vymažeme všetky guild príkazy, aby nezostali duplikáty
+    guild = discord.Object(id=GUILD_ID)
+    client.tree.clear_commands(guild=guild)
+    await client.tree.sync(guild=guild)
+
+    # zaregistrujeme globálne
+    synced = await client.tree.sync()
+    print(f"Synced commands - {len(synced)}")
+
     client.add_view(CloseTicketView())
 
 # ----------------------- /role give command  ----------------------- 
@@ -83,7 +94,6 @@ async def on_ready():
 @client.tree.command(
     name="role",
     description="Adds a role to a member.",
-    guild=discord.Object(id=GUILD_ID)
 )
 @discord.app_commands.checks.has_permissions(administrator=True)
 async def addRole(interaction: discord.Interaction, user: discord.Member, role: discord.Role):
@@ -95,12 +105,24 @@ async def addRole(interaction: discord.Interaction, user: discord.Member, role: 
         await user.add_roles(role)
         await interaction.followup.send(f"Added {role.name} to {user.mention}!")
 
+# ----------------------- /psd add command  ----------------------- 
+
+@client.tree.command(
+        name="psd", 
+        description="Send an embed with link, image and user"
+)
+@discord.app_commands.checks.has_permissions(administrator=True)
+async def psd(interaction, link: str, image: discord.Attachment, user: discord.User):
+    embed = discord.Embed(title=link)
+    embed.set_image(url=image.url)
+    embed.set_footer(text=f"Provided by {user}"),
+    await interaction.response.send_message(embed=embed)
+
 # ----------------------- /role remove command  ----------------------- 
 
 @client.tree.command(
     name="remove",
     description="Removes a role from a member.",
-    guild=discord.Object(id=GUILD_ID)
 )
 @discord.app_commands.checks.has_permissions(administrator=True)
 async def removeRole(interaction: discord.Interaction, user: discord.Member, role: discord.Role):
@@ -113,7 +135,6 @@ async def removeRole(interaction: discord.Interaction, user: discord.Member, rol
 @client.tree.command(
     name="purge",
     description="Clears messages",
-    guild=discord.Object(id=GUILD_ID)
 )
 @discord.app_commands.checks.has_permissions(administrator=True)
 async def purge(interaction: discord.Interaction, amount: int):

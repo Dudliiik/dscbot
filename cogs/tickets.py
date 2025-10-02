@@ -3,6 +3,8 @@ from discord import app_commands
 from discord.ext import commands
 import asyncio
 import io
+import os
+import re
 
 # Close Button ---------------------------------
 
@@ -22,7 +24,41 @@ class CloseButton(discord.ui.View):
 
 # Buttons --------------------------------------
 
+TRANSCRIPT_FOLDER = os.path.join(os.getcwd(), "thumbnailers/transcripts")
+os.makedirs(TRANSCRIPT_FOLDER, exist_ok=True)
 TRANSCRIPT_CHANNEL_ID = 1419364607918739616
+
+async def get_member_safe(guild, user_id):
+    member = guild.get_member(user_id)
+    if not member:
+        try:
+            member = await guild.fetch_member(user_id)
+        except discord.NotFound:
+            member = None
+    return member
+
+def replace_mentions(text, msg):
+    guild = msg.guild
+
+    # Channel mentions <#id>
+    text = re.sub(r"<#(\d+)>", lambda m: f'<span class="channel-mention">#{guild.get_channel(int(m[1])).name if guild.get_channel(int(m[1])) else "deleted-channel"}</span>', text)
+    
+    # User mentions <@id> or <@!id>
+    text = re.sub(r"<@!?(\d+)>", lambda m: f'<span class="mention">@{guild.get_member(int(m[1])).display_name if guild.get_member(int(m[1])) else msg.author.name}</span>', text)
+
+    # Role mentions <@&id>
+    def role_replace(m):
+        role = guild.get_role(int(m[1]))
+        if role:
+            r, g, b = role.color.r, role.color.g, role.color.b
+            bg = f"rgb({int(r*0.25)},{int(g*0.25)},{int(b*0.25)})" if role.color.value else "rgba(255,255,255,0.1)"
+            color = f"#{role.color.value:06x}" if role.color.value else "#ffffff"
+            return f'<span class="role-mention" style="background-color:{bg}; color:{color};">@{role.name}</span>'
+        else:
+            return "@deleted-role"
+    text = re.sub(r"<@&(\d+)>", role_replace, text)
+
+    return text
 
 class Buttons(discord.ui.View):
     def __init__(self, bot):
@@ -40,48 +76,119 @@ class Buttons(discord.ui.View):
         )
         await interaction.followup.send(embed=embed, ephemeral=False)
 
-        # Odstránime autora ticketu zo slovníka
         cog = self.bot.get_cog("Tickets")
         if cog and interaction.channel.id in cog.ticket_owners:
             del cog.ticket_owners[interaction.channel.id]
 
-        # Funkcia na uloženie transkriptu
-        async def save_ticket_transcript(channel: discord.TextChannel):
+        async def save_ticket_transcript_html(channel: discord.TextChannel):
             transcript_channel = self.bot.get_channel(TRANSCRIPT_CHANNEL_ID)
             if transcript_channel is None:
                 print(f"Transcript channel with ID {TRANSCRIPT_CHANNEL_ID} not found.")
                 return
 
-            output = io.StringIO()
+            os.makedirs("thumbnailers/transcripts", exist_ok=True)
+            file_path = os.path.join("thumbnailers/transcripts", f"{channel.name}.html")
+
+            html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Transcript - {channel}</title>
+<style>
+body {{ font-family: "gg sans", Arial, sans-serif; background: #2c2f33; color: #dcddde; margin: 4px; padding: 0; }}
+.header {{ background-color: #36393f; color: #fff; font-size: 20px; font-weight: bold; padding: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.3); }}
+.messages {{ margin: 0; padding: 10px; max-width: 600px; }}
+.message {{ display: flex; margin-bottom: 10px; width: 100%; }}
+.avatar {{ width: 40px; height: 40px; border-radius: 50%; margin-right: 10px; flex-shrink: 0; }}
+.message-content {{ display: flex; flex-direction: column; max-width: 100%; }}
+.author {{ font-weight: bold; }}
+.time {{ font-size: 0.75em; color: #72767d; margin-left: 12px; }}
+.content {{ margin-top: 2px; white-space: pre-wrap; }}
+.embed {{ border-left: 4px solid #4f545c; background: #2f3136; padding: 8px; border-radius: 4px; max-width: 480px; }}
+.attachment {{ margin-top: 5px; margin-left: 50px; }}
+.attachment img, .embed img {{ max-width: 300px; max-height: 300px; display: block; margin-top:5px; border-radius:4px; }}
+.mention, .role-mention, .channel-mention {{ border-radius: 4px; padding: 2px 2px; font-size: 0.95em; font-weight: 500; white-space: nowrap; }}
+.mention {{ background-color: rgba(88, 101, 242, 0.3); color: #A5B5F9; }}
+.role-mention {{ background-color: rgba(255, 255, 255, 0.1); color: inherit; }}
+.channel-mention {{ background-color: rgba(88, 101, 242, 0.3); color: #A5B5F9; }}
+a {{ color: #00b0f4; text-decoration: none; }}
+</style>
+</head>
+<body>
+<div class="header"># {channel}</div>
+<div class="messages">
+"""
+
             async for msg in channel.history(limit=None, oldest_first=True):
-                # Text správy
-                output.write(f"{msg.created_at} - {msg.author.display_name}: {msg.content}\n")
-                
-                # Embeds
+                is_bot = "bot" if getattr(msg.author, "bot", False) else ""
+                html += f'<div class="message">'
+                html += f'<img src="{msg.author.display_avatar.url}" class="avatar">'
+                html += f'<div class="message-content">'
+
+                member = await get_member_safe(channel.guild, msg.author.id)
+                role_color = "#dcddde"
+
+                if member:
+                    colored_roles = [r for r in member.roles if r.name != "@everyone" and r.color.value != 0]
+                    if colored_roles:
+                        top_role = max(colored_roles, key=lambda r: r.position)
+                        role_color = f"#{top_role.color.value:06x}"
+
+                display_name = member.display_name if member else msg.author.name
+                user_display = f'<span class="author {is_bot}" style="color:{role_color}">{display_name}</span>'
+                time_str = msg.created_at.strftime("%d. %m. %Y %I:%M %p")
+                time_html = f'<span class="time">{time_str}</span>'
+                html += f'<div style="display:flex;align-items:center;">{user_display}{time_html}</div>'
+
+                if msg.content:
+                    content_html = replace_mentions(msg.content, msg)
+                    content_html = content_html.replace("**", "<b>").replace("*", "<i>").replace("__", "<u>")
+                    html += f'<div class="content">{content_html}</div>'
+
+                # --- embeds ---
                 for embed in msg.embeds:
-                    output.write("  **Embed**\n")
+                    embed_color = f"#{embed.color.value:06x}" if embed.color else "#4f545c"
+                    html += f'<div class="embed" style="border-left:4px solid {embed_color}; background:#2f3136; padding:10px; margin-top:8px; border-radius:4px; max-width:520px;">'
                     if embed.title:
-                        output.write(f"    Title: {embed.title}\n")
+                        html += f'<div style="font-weight:600; font-size:16px; margin-bottom:4px;">{embed.title}</div>'
                     if embed.description:
-                        output.write(f"    Description: {embed.description}\n")
+                        desc_html = replace_mentions(embed.description, msg)
+                        html += f'<div style="font-size:14px; white-space:pre-wrap; margin-bottom:6px;">{desc_html}</div>'
                     for field in embed.fields:
-                        output.write(f"    Field {field.name}: {field.value}\n")
-                
-                # Attachments
+                        field_html = replace_mentions(field.value, msg)
+                        html += f'<div style="margin-top:4px;">'
+                        html += f'<div style="font-weight:600; font-size:14px; margin-bottom:2px;">{field.name}</div>'
+                        html += f'<div style="font-size:14px; white-space:pre-wrap;">{field_html}</div>'
+                        html += '</div>'
+                    if embed.image and embed.image.url:
+                        html += f'<img src="{embed.image.url}" style="max-width:100%; margin-top:6px;">'
+                    if embed.thumbnail and embed.thumbnail.url:
+                        html += f'<img src="{embed.thumbnail.url}" style="max-width:80px; max-height:80px; margin-top:6px;">'
+                    html += '</div>'
+
+                # --- attachments preview ---
                 for attachment in msg.attachments:
-                    output.write(f"    Attachment: {attachment.url}\n")
-                
-                output.write("\n")  # oddelenie správ
+                    if attachment.content_type and attachment.content_type.startswith("image/"):
+                        html += f'<div class="attachment"><a href="{attachment.url}">{attachment.filename}</a><br><img src="{attachment.url}" style="max-width:400px; max-height:400px; margin-top:6px;"></div>'
+                    else:
+                        html += f'<div class="attachment"><a href="{attachment.url}">{attachment.filename}</a></div>'
 
-            output.seek(0)
-            file = discord.File(fp=output, filename=f"{channel.name}.txt")
-            await transcript_channel.send(f"Ticket closed:", file=file)
+                html += '</div></div>'
 
-        async def delete_channel_later(channel):
+            html += """</div></body></html>"""
+
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(html)
+
+            await transcript_channel.send(
+                f"Transcript for {channel.mention}:",
+                file=discord.File(file_path)
+            )
+
+        async def delete_channel_later(channel: discord.TextChannel):
             await asyncio.sleep(2)
             try:
-                # najprv uložíme transcript
-                await save_ticket_transcript(channel)
+                await save_ticket_transcript_html(channel)
                 await channel.delete()
             except Exception as e:
                 print(f"Failed to delete channel: {e}")
@@ -214,14 +321,14 @@ class CloseTicketView(discord.ui.View):
 
     @discord.ui.button(label="❌ Deny & Keep Open", style=discord.ButtonStyle.gray, custom_id="deny_keep")
     async def deny_keep(self, interaction: discord.Interaction, button: discord.ui.Button):
-     if not is_ticket_channel(interaction.channel):
+        if not is_ticket_channel(interaction.channel):
+            await interaction.response.send_message(
+                "This button can only be used in ticket channels.", ephemeral=True)
+            return
         await interaction.response.send_message(
-            "This button can only be used in ticket channels.", ephemeral=True)
-        return
-     await interaction.response.send_message(
-        content=f"{interaction.user.mention} has denied the ticket closure.", ephemeral=False)
-     await interaction.message.delete()
-        
+            content=f"{interaction.user.mention} has denied the ticket closure.", ephemeral=False)
+        await interaction.message.delete()
+
 # ---------------- Helper Function ----------------
 
 def is_ticket_channel(channel: discord.abc.GuildChannel):
@@ -229,11 +336,11 @@ def is_ticket_channel(channel: discord.abc.GuildChannel):
     return any(channel.name.startswith(prefix) for prefix in ticket_prefixes)
 
 
-
 class TicketDropdownView(discord.ui.View):
     def __init__(self, bot):
         super().__init__(timeout=None)
         self.add_item(TicketCategory(bot))
+
 
 # ------------ Ticket setup command ------------
 
@@ -283,6 +390,7 @@ class Tickets(commands.Cog):
         )
 
         await interaction.response.send_message(embed=embed, view=CloseTicketView())
+
 
 async def setup(client):
     await client.add_cog(Tickets(client))
