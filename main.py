@@ -1,10 +1,9 @@
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
-from discord.utils import get
 import os
 import asyncio
-from flask import Flask, send_from_directory
+from flask import Flask, send_from_directory, abort
 from threading import Thread
 from cogs.tickets import CloseTicketView
 
@@ -17,12 +16,18 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 # ---------------- Flask ----------------
 
 app = Flask(__name__)
+
 TRANSCRIPT_FOLDER = os.path.join(os.getcwd(), "thumbnailers/transcripts")
+os.makedirs(TRANSCRIPT_FOLDER, exist_ok=True)
 
 @app.route("/transcripts/<ticket_name>")
-def transcripts(ticket_name):
+def serve_transcript(ticket_name):
     file_name = f"{ticket_name}.html"
-    return send_from_directory(TRANSCRIPT_FOLDER, file_name)
+    file_path = os.path.join(TRANSCRIPT_FOLDER, file_name)
+    if os.path.exists(file_path):
+        return send_from_directory(TRANSCRIPT_FOLDER, file_name, mimetype="text/html")
+    else:
+        abort(404, description="Transcript not found")
 
 @app.route("/")
 def home():
@@ -30,7 +35,8 @@ def home():
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+
 
 # ---------------- Discord bot ----------------
 
@@ -109,7 +115,7 @@ async def addRole(interaction: discord.Interaction, user: discord.Member, role: 
 
 @client.tree.command(
         name="psd", 
-        description="Send an embed with link, image and user"
+        description="Adds a PSD to the VIP channels."
 )
 @discord.app_commands.checks.has_permissions(administrator=True)
 async def psd(interaction, link: str, image: discord.Attachment, user: discord.User):

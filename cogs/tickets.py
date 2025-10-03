@@ -5,6 +5,8 @@ import asyncio
 import io
 import os
 import re
+from discord.ui import View, Button
+import urllib.parse
 
 # Close Button ---------------------------------
 
@@ -180,10 +182,18 @@ a {{ color: #00b0f4; text-decoration: none; }}
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(html)
 
-            await transcript_channel.send(
-                f"Transcript for {channel.mention}:",
-                file=discord.File(file_path)
+            embed = discord.Embed(
+                title="Ticket Closed",
+                description=f"```Ticket: {channel.name}```"
             )
+
+            safe_name = urllib.parse.quote(channel.name)
+            url = f"https://dscbot.onrender.com/transcripts/{safe_name}.html"
+            view = View()
+            view.add_item(Button(label="📄 Transcript", url=url))
+
+
+            await transcript_channel.send(embed=embed, view=view)
 
         async def delete_channel_later(channel: discord.TextChannel):
             await asyncio.sleep(2)
